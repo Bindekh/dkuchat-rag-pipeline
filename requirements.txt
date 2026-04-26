@@ -1,0 +1,15 @@
+dspy-ai
+faiss-cpu
+rank-bm25
+sentence-transformers
+pdfplumber
+python-docx
+gradio
+duckduckgo-search
+python-dotenv
+numpy
+requests
+pymupdf
+pytesseract
+pdf2image
+ 
