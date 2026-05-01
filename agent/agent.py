@@ -7,11 +7,18 @@ from tools.internet_search import InternetSearchTool
 # --- DSPy Signatures ---
 
 class ToolSelector(dspy.Signature):
+
     """Given a user question, decide which search tools to use.
+    
+    Rules:
+    - Use 'internet' for: current events, weather, news, prices, anything needing live data
+    - Use 'vector' for: questions about DKU documents, courses, policies, requirements
+    - Use 'keyword' for: specific terms, names, codes mentioned in documents
+    - You can combine tools. Always include at least one.
+    
     Output a comma-separated list of: vector, keyword, internet"""
     question: str = dspy.InputField(desc="User question in English or Chinese")
     tools_to_use: str = dspy.OutputField(desc="Comma-separated tools: vector, keyword, internet")
-
 class AnswerWithCitations(dspy.Signature):
     """Answer the question using the retrieved context.
     IMPORTANT: You MUST respond in the same language as specified in the 'language' field.
@@ -53,13 +60,13 @@ class RAGAgent(dspy.Module):
         # Step 3: run selected tools — reduced top_k to limit context size
         all_results = []
         if "vector" in tools:
-            all_results += self.vector_tool.search(question, top_k=2)
+            all_results += self.vector_tool.search(question, top_k=4)
         if "keyword" in tools:
-            all_results += self.keyword_tool.search(question, top_k=1)
+            all_results += self.keyword_tool.search(question, top_k=2)
         if "internet" in tools:
-            all_results += self.internet_tool.search(question, top_k=1)
+            all_results += self.internet_tool.search(question, top_k=2)
 
-        # Step 4: format context with hard 600-word limit
+        # Step 4: format context with hard 1200-word limit
         context_parts = []
         total_words = 0
         for r in all_results:
@@ -68,7 +75,7 @@ class RAGAgent(dspy.Module):
                 f"Method: {r['method']}]\n{r['text']}"
             )
             chunk_words = len(chunk_text.split())
-            if total_words + chunk_words > 600:
+            if total_words + chunk_words > 1200:
                 break
             context_parts.append(chunk_text)
             total_words += chunk_words
@@ -90,18 +97,22 @@ class RAGAgent(dspy.Module):
 
 def setup_dspy(model_name=None, base_url=None):
     """Configure DSPy to use local LLM via OpenAI-compatible endpoint."""
-    model_name = model_name or os.getenv("LLM_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
-    base_url   = base_url   or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
+    model_name = model_name or os.getenv("LLM_MODEL", "gemma3:4b")
+    base_url   = base_url   or os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
 
     lm = dspy.LM(
         model=f"openai/{model_name}",
+        # DSPy uses OpenAI SDK → sends request to Ollama's OpenAI-compatible endpoint
         api_base=base_url,
         api_key="not-needed",
-        max_tokens=512,
+        max_tokens=1024,
         temperature=0.1,
-        cache=False
+        cache=False,
+        system="You are a concise assistant. Answer directly and briefly without lengthy reasoning or thinking steps. Get straight to the point."
+
     )
     dspy.configure(lm=lm)
     print(f"[DSPy] Using model : {model_name}")
     print(f"[DSPy] Server URL  : {base_url}")
     return model_name
+
